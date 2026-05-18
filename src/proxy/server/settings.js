@@ -22,7 +22,9 @@ function writeSettings(data) {
   }
   const current = readSettings();
   const merged = { ...current, ...data };
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf8');
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 });
+  // mode: 0o600 only applies on creation; explicitly chmod to tighten pre-existing files
+  try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
   return merged;
 }
 
@@ -61,4 +63,9 @@ function getProxyUrl() {
   return settings.proxy?.url || null;
 }
 
-module.exports = { readSettings, writeSettings, clearSettings, clearIfStale, isStaleProxy, getProxyUrl, SETTINGS_DIR, SETTINGS_FILE };
+function getProxyToken() {
+  const settings = readSettings();
+  return settings.proxy?.token || null;
+}
+
+module.exports = { readSettings, writeSettings, clearSettings, clearIfStale, isStaleProxy, getProxyUrl, getProxyToken, SETTINGS_DIR, SETTINGS_FILE };

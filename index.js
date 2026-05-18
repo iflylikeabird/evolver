@@ -129,9 +129,9 @@ class CycleTimeoutError extends Error {
 // in detached mode. So suicide-respawn (cycles >= max, RSS over budget, or the
 // new cycle hard-timeout) opens a new cmd popup on every restart. We now skip
 // the in-process detached spawn on Windows by default and rely on an external
-// supervisor (feishu-evolver-wrapper >= 1.10.0, NSSM, pm2-windows, etc.) to
-// respawn the daemon on non-zero exit. Users who insist can opt back in with
-// EVOLVER_SUICIDE_WINDOWS=true (and accept the popups).
+// supervisor (NSSM, pm2-windows, etc.) to respawn the daemon on non-zero exit.
+// Users who insist can opt back in with EVOLVER_SUICIDE_WINDOWS=true (and accept
+// the popups).
 function spawnReplacementProcess({ reason, args, logPath }) {
   const isWindows = process.platform === 'win32';
   const allowOnWindows = parseBoolEnv(process.env.EVOLVER_SUICIDE_WINDOWS, false);
@@ -140,7 +140,7 @@ function spawnReplacementProcess({ reason, args, logPath }) {
       '[Daemon] Skipping in-process respawn on Windows (' + reason + '). ' +
       'Native Node spawn(detached, windowsHide) opens a cmd popup on every restart (Issue #528). ' +
       'Set EVOLVER_SUICIDE_WINDOWS=true to opt back in. ' +
-      'Recommended: run evolver under feishu-evolver-wrapper >= 1.10.0, NSSM, or pm2-windows so the supervisor restarts on exit.'
+      'Recommended: run evolver under an external supervisor (NSSM, pm2-windows, etc.) so it restarts on exit.'
     );
     return { spawned: false, reason: 'windows_default_skip' };
   }
@@ -372,8 +372,7 @@ async function main() {
         const idleThresholdMs = parseMs(process.env.EVOLVER_IDLE_THRESHOLD_MS, 500);
         const pendingSleepMs = parseMs(
           process.env.EVOLVE_PENDING_SLEEP_MS ||
-            process.env.EVOLVE_MIN_INTERVAL ||
-            process.env.FEISHU_EVOLVER_INTERVAL,
+            process.env.EVOLVE_MIN_INTERVAL,
           120000
         );
 
@@ -732,7 +731,7 @@ async function main() {
     const summary = summaryFlag ? summaryFlag.slice('--summary='.length) : null;
 
     try {
-      const res = solidify({
+      const res = await solidify({
         intent: intent || undefined,
         summary: summary || undefined,
         dryRun,
@@ -982,7 +981,7 @@ async function main() {
     if (args.includes('--approve')) {
       console.log('\n[Review] Approved. Running solidify...\n');
       try {
-        const res = solidify({
+        const res = await solidify({
           intent: lastRun.intent || undefined,
           rollbackOnFailure: true,
         });

@@ -4,6 +4,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { getProxySettings } = require('./status');
+const { getProxyToken } = require('../../proxy/server/settings');
 const { readJsonl, paginate } = require('./jsonl');
 const { redactValue } = require('./redact');
 
@@ -52,23 +53,28 @@ async function readProxySnapshots(baseUrl) {
 
 function requestJson(url) {
   return new Promise((resolve) => {
-    const req = http.get(url, { timeout: 1500 }, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString();
-        try {
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: JSON.parse(raw) });
-        } catch {
-          resolve({ ok: false, status: res.statusCode, body: null });
-        }
-      });
-    });
-    req.on('timeout', () => {
-      req.destroy();
-      resolve({ ok: false, status: 0, error: 'timeout' });
-    });
+    const u = new URL(url);
+    const token = getProxyToken();
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const req = http.request(
+      { hostname: u.hostname, port: u.port, path: u.pathname + (u.search || ''), method: 'GET', headers, timeout: 1500 },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString();
+          try {
+            resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: JSON.parse(raw) });
+          } catch {
+            resolve({ ok: false, status: res.statusCode, body: null });
+          }
+        });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
     req.on('error', (err) => resolve({ ok: false, status: 0, error: err.message }));
+    req.end();
   });
 }
 

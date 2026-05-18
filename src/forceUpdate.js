@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { getEvolverInstallRoot } = require('./gep/paths');
 
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
@@ -73,7 +73,8 @@ function executeForceUpdate(forceUpdate) {
   try {
     console.log('[ForceUpdate] Channel 1: GitHub Release download...');
     try { fs.rmSync(TMP_TARGET, { recursive: true, force: true }); } catch (_) {}
-    execSync('npx -y degit EvoMap/evolver ' + JSON.stringify(TMP_TARGET), {
+    var npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    execFileSync(npxBin, ['-y', 'degit', 'EvoMap/evolver', TMP_TARGET], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60000, windowsHide: true, maxBuffer: MAX_EXEC_BUFFER,
     });
@@ -101,28 +102,11 @@ function executeForceUpdate(forceUpdate) {
     try { fs.rmSync(TMP_TARGET, { recursive: true, force: true }); } catch (_) {}
   }
 
-  // Channel 2: npm
-  try {
-    console.log('[ForceUpdate] Channel 2: npm install...');
-    var npmCmd = 'npm install -g @evomap/evolver@latest';
-    execSync(npmCmd, {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120000, windowsHide: true, maxBuffer: MAX_EXEC_BUFFER,
-    });
-    var newVerNpm = getCurrentVersion();
-    if (isAtLeast(newVerNpm, requiredVersion)) {
-      console.log('[ForceUpdate] npm update successful: ' + newVerNpm);
-      return true;
-    }
-  } catch (e) {
-    console.warn('[ForceUpdate] npm failed:', e && e.message || e);
-  }
-
-  // Channel 3: GitHub release (manual download URL only)
+  // Channel 2: GitHub release (manual download URL only)
   try {
     var releaseUrl = forceUpdate.release_url;
     if (releaseUrl) {
-      console.log('[ForceUpdate] Channel 3: GitHub release -- manual download required');
+      console.log('[ForceUpdate] Channel 2: GitHub release -- manual download required');
       console.log('[ForceUpdate] Visit: ' + releaseUrl);
     }
   } catch (_) {}

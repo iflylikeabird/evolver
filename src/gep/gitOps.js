@@ -90,11 +90,6 @@ function isGitRepo(dir) {
 }
 
 const CRITICAL_PROTECTED_PREFIXES = [
-  'skills/feishu-evolver-wrapper/',
-  'skills/feishu-common/',
-  'skills/feishu-post/',
-  'skills/feishu-card/',
-  'skills/feishu-doc/',
   'skills/skill-tools/',
   'skills/git-sync/',
   'skills/evolver/',

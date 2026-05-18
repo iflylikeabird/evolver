@@ -33,7 +33,7 @@ describe('normalizeRelPath', () => {
 describe('isCriticalProtectedPath', () => {
   it('protects skill directories', () => {
     assert.equal(isCriticalProtectedPath('skills/evolver/index.js'), true);
-    assert.equal(isCriticalProtectedPath('skills/feishu-evolver-wrapper/lifecycle.js'), true);
+    assert.equal(isCriticalProtectedPath('skills/skill-tools/foo.js'), true);
   });
 
   it('protects root files', () => {

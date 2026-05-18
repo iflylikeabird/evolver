@@ -169,7 +169,7 @@ describe('solidify() integration', () => {
     } catch (_) {}
   });
 
-  it('returns ok:false when not a git repo', (t) => {
+  it('returns ok:false when not a git repo', async (t) => {
     if (!gitAvailable) return t.skip('git not available in this environment');
     // All four path-sensitive env vars are redirected into nonGitDir so the
     // override is unambiguous — solidify cannot accidentally use the git-
@@ -197,7 +197,7 @@ describe('solidify() integration', () => {
       // call, not cache at module load. If paths.js ever caches at load time this
       // assertion fires before solidify() is called, making the failure obvious.
       assert.equal(getRepoRoot(), nonGitDir, 'getRepoRoot must re-read env on each call');
-      const result = solidify();
+      const result = await solidify();
       assert.equal(result.ok, false);
       assert.equal(result.failure_reason, 'not_a_git_repository');
     } finally {
@@ -209,14 +209,14 @@ describe('solidify() integration', () => {
     }
   });
 
-  it('first run with no prior state fails cleanly and writes an event', (t) => {
+  it('first run with no prior state fails cleanly and writes an event', async (t) => {
     if (!gitAvailable) return t.skip('git not available in this environment');
     const eventsPath = path.join(process.env.GEP_ASSETS_DIR, 'events.jsonl');
     const linesBefore = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean).length;
 
     // No last_run state — solidify should still complete, emitting a failed
     // outcome (missing mutation/personality) but writing an event to disk.
-    const result = solidify({ dryRun: false });
+    const result = await solidify({ dryRun: false });
     assert.ok(typeof result === 'object' && result !== null, 'solidify returned an object');
     assert.ok('ok' in result, 'result has ok field');
     // With no last_run, protocolViolations fire → outcome is failed but no crash.
@@ -226,7 +226,7 @@ describe('solidify() integration', () => {
     assert.ok(linesAfter.length > linesBefore, 'solidify should have written at least one new event');
   });
 
-  it('valid session with lastRun state persists a capsule to disk', (t) => {
+  it('valid session with lastRun state persists a capsule to disk', async (t) => {
     if (!gitAvailable) return t.skip('git not available in this environment');
     const evolutionDir = process.env.EVOLUTION_DIR;
     const gepDir = process.env.GEP_ASSETS_DIR;
@@ -239,7 +239,7 @@ describe('solidify() integration', () => {
     const testFile = path.join(srcDir, 'test_session_change.js');
     fs.writeFileSync(testFile, 'exports.x = 1;\n', 'utf8');
     try {
-      const result = solidify({ dryRun: false });
+      const result = await solidify({ dryRun: false });
       assert.ok(result, 'solidify returned result');
       assert.equal(result.ok, true, 'solidify should succeed with valid lastRun: ' + JSON.stringify(result.constraintCheck && result.constraintCheck.violations));
       const stored = JSON.parse(fs.readFileSync(path.join(gepDir, 'capsules.json'), 'utf8'));
@@ -250,7 +250,7 @@ describe('solidify() integration', () => {
     }
   });
 
-  it('rejects when blast radius exceeds gene max_files constraint', (t) => {
+  it('rejects when blast radius exceeds gene max_files constraint', async (t) => {
     if (!gitAvailable) return t.skip('git not available in this environment');
     const evolutionDir = process.env.EVOLUTION_DIR;
     writeLastRun(evolutionDir);
@@ -261,7 +261,7 @@ describe('solidify() integration', () => {
       for (let i = 0; i < 25; i++) {
         fs.writeFileSync(path.join(blastDir, `f${i}.js`), `exports.n = ${i};\n`, 'utf8');
       }
-      const result = solidify({ dryRun: false });
+      const result = await solidify({ dryRun: false });
       assert.ok(result, 'solidify returned result');
       assert.equal(result.ok, false, 'solidify should reject when blast radius exceeds max_files');
       const violations = result.constraintCheck && result.constraintCheck.violations || [];
@@ -274,14 +274,14 @@ describe('solidify() integration', () => {
     }
   });
 
-  it('second run has parent_event_id pointing to first run event (event chain)', (t) => {
+  it('second run has parent_event_id pointing to first run event (event chain)', async (t) => {
     if (!gitAvailable) return t.skip('git not available in this environment');
     const evolutionDir = process.env.EVOLUTION_DIR;
     const eventsPath = path.join(process.env.GEP_ASSETS_DIR, 'events.jsonl');
 
     writeLastRun(evolutionDir);
 
-    const result1 = solidify({ dryRun: false });
+    const result1 = await solidify({ dryRun: false });
     assert.ok(result1, 'first solidify returned result');
 
     const lines1 = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean);
@@ -291,7 +291,7 @@ describe('solidify() integration', () => {
 
     // Set up second run pointing at event1
     writeLastRun(evolutionDir, { parent_event_id: event1.id });
-    const result2 = solidify({ dryRun: false });
+    const result2 = await solidify({ dryRun: false });
     assert.ok(result2, 'second solidify returned result');
 
     const lines2 = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean);

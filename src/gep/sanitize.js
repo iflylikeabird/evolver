@@ -7,7 +7,7 @@ const REDACT_PATTERNS = [
   // API keys & tokens (generic)
   /Bearer\s+[A-Za-z0-9\-._~+\/]+=*/g,
   /sk-[A-Za-z0-9]{20,}/g,
-  /token[=:]\s*["']?[A-Za-z0-9\-._~+\/]{16,}["']?/gi,
+  /"?token"?[=:]\s*["']?[A-Za-z0-9\-._~+\/]{16,}["']?/gi,
   /api[_-]?key[=:]\s*["']?[A-Za-z0-9\-._~+\/]{16,}["']?/gi,
   /secret[=:]\s*["']?[A-Za-z0-9\-._~+\/]{16,}["']?/gi,
   /password[=:]\s*["']?[^\s"',;)}\]]{6,}["']?/gi,
@@ -98,6 +98,7 @@ const LEAK_SCANNERS = [
   { type: 'azure_instrumentation_key', pattern: /instrumentationkey=[0-9a-fA-F-]{20,}/gi, suggest: 'process.env.APPINSIGHTS_INSTRUMENTATIONKEY' },
   { type: 'discord_token', pattern: /\b[MNO][A-Za-z0-9_\-]{23,}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,}\b/g, suggest: 'process.env.DISCORD_TOKEN' },
   { type: 'bearer_token', pattern: /Bearer\s+[A-Za-z0-9\-._~+\/]{20,}=*/g, suggest: 'process.env.AUTH_TOKEN' },
+  { type: 'proxy_token', pattern: /"?token"?[=:]\s*["']?[A-Za-z0-9\-._~+\/]{16,}["']?/gi, suggest: 'proxy token (ephemeral, stored in settings.json)' },
   { type: 'private_key', pattern: /-----BEGIN\s+(?:RSA\s+|EC\s+|DSA\s+|OPENSSH\s+)?PRIVATE\s+KEY-----/g, suggest: 'process.env.PRIVATE_KEY_PATH' },
   // Database connection strings with credentials
   { type: 'db_url', pattern: /(?:mongodb|postgres|postgresql|mysql|redis|amqp):\/\/[^\s"',;)}\]]{10,}/gi, suggest: 'process.env.DATABASE_URL' },

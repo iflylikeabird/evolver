@@ -34,17 +34,7 @@ function runHealthCheck() {
     let criticalErrors = 0;
     let warnings = 0;
 
-    // 1. Secret Check (Critical for external services, but maybe not for the agent itself to run)
-    const criticalSecrets = ['FEISHU_APP_ID', 'FEISHU_APP_SECRET'];
-    criticalSecrets.forEach(key => {
-        if (!process.env[key] || process.env[key].trim() === '') {
-            checks.push({ name: `env:${key}`, ok: false, status: 'missing', severity: 'warning' }); // Downgraded to warning to prevent restart loops
-            warnings++;
-        } else {
-            checks.push({ name: `env:${key}`, ok: true, status: 'present' });
-        }
-    });
-
+    // 1. Optional secret presence (informational; evolver core has no required secrets).
     const optionalSecrets = ['OPENAI_API_KEY'];
     optionalSecrets.forEach(key => {
         if (!process.env[key] || process.env[key].trim() === '') {

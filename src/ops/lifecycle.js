@@ -18,10 +18,8 @@ var PID_FILE = path.join(WORKSPACE_ROOT, 'memory', 'evolver_loop.pid');
 var MAX_SILENCE_MS = require('../config').MAX_SILENCE_MS;
 
 function getLoopScript() {
-    // Prefer wrapper if exists, fallback to core evolver
+    // External supervisors / wrappers can override via EVOLVER_LOOP_SCRIPT.
     if (process.env.EVOLVER_LOOP_SCRIPT) return process.env.EVOLVER_LOOP_SCRIPT;
-    var wrapper = path.join(WORKSPACE_ROOT, 'skills/feishu-evolver-wrapper/index.js');
-    if (fs.existsSync(wrapper)) return wrapper;
     return path.join(getRepoRoot(), 'index.js');
 }
 

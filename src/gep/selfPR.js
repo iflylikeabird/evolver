@@ -56,8 +56,6 @@ const OBFUSCATED_FILES = new Set([
   'src/gep/envFingerprint.js',
   'src/gep/skillDistiller.js',
   'src/gep/explore.js',
-  'src/gep/integrityCheck.js',
-  'src/gep/shield.js',
 ]);
 
 // Files that are included in the public manifest (superset patterns).

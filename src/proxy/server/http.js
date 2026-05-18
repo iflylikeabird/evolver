@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const http = require('http');
 const { writeSettings, readSettings, clearSettings, clearIfStale } = require('./settings');
 
@@ -89,10 +90,12 @@ class ProxyHttpServer {
     this.actualPort = null;
     this.logger = logger || console;
     this.server = null;
+    this.token = null;
   }
 
   async start() {
     clearIfStale();
+    this.token = crypto.randomBytes(32).toString('hex');
     this.server = http.createServer((req, res) => this._handleRequest(req, res));
 
     let port = this.basePort;
@@ -106,10 +109,11 @@ class ProxyHttpServer {
             url,
             pid: process.pid,
             started_at: new Date().toISOString(),
+            token: this.token,
           },
         });
         this.logger.log(`[proxy] HTTP server listening on ${url}`);
-        return { port, url };
+        return { port, url, token: this.token };
       }
       port++;
     }
@@ -125,6 +129,17 @@ class ProxyHttpServer {
   }
 
   async _handleRequest(req, res) {
+    const authHeader = req.headers['authorization'] || '';
+    const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const expBuf = Buffer.from(this.token || '', 'utf8');
+    const provBuf = Buffer.from(provided, 'utf8');
+    const valid = this.token &&
+      provBuf.length === expBuf.length &&
+      crypto.timingSafeEqual(provBuf, expBuf);
+    if (!valid) {
+      return sendJson(res, 401, { error: 'Unauthorized' });
+    }
+
     const url = new URL(req.url, `http://127.0.0.1:${this.actualPort}`);
     const routeKey = `${req.method} ${url.pathname}`;
 

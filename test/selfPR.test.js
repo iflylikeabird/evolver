@@ -36,8 +36,6 @@ describe('isPublicNonObfuscated', () => {
     assert.equal(isPublicNonObfuscated('src/gep/selector.js'), false);
     assert.equal(isPublicNonObfuscated('src/gep/mutation.js'), false);
     assert.equal(isPublicNonObfuscated('src/gep/prompt.js'), false);
-    assert.equal(isPublicNonObfuscated('src/gep/shield.js'), false);
-    assert.equal(isPublicNonObfuscated('src/gep/integrityCheck.js'), false);
   });
 
   it('accepts index.js and scripts', () => {
