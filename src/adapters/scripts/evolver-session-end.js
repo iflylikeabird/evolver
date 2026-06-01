@@ -13,27 +13,16 @@ const { spawnSync } = require('child_process');
 // on large repos). See GHSA reports / issue #451.
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
 
-const { findEvolverRoot, findMemoryGraph, resolveProjectDir } = require('./_runtimePaths');
+const { findEvolverRoot, findMemoryGraph, resolveProjectDir, resolveWorkspaceId } = require('./_runtimePaths');
 
-// Workspace-id must use the same resolution as the reader in
-// src/evolve/pipeline/collect.js (which goes through src/gep/paths.js#
-// getWorkspaceRoot()). Otherwise writer and reader could land on
-// different `.evolver/workspace-id` files when EVOLVER_REPO_ROOT or
-// OPENCLAW_WORKSPACE is set, or when a `<repoRoot>/workspace`
-// subdirectory exists — in which case the IDs would never match and
-// every memory-graph entry would silently get dropped (Bugbot PR #109
-// round-1 MEDIUM). Lazy-load the canonical resolver from the resolved
-// evolver root; fall back to env-only when paths.js is unreachable.
-function resolveWorkspaceIdForWriter() {
-  if (process.env.EVOLVER_WORKSPACE_ID) return String(process.env.EVOLVER_WORKSPACE_ID);
-  const evolverRoot = findEvolverRoot();
-  if (!evolverRoot) return null;
-  try {
-    const paths = require(path.join(evolverRoot, 'src', 'gep', 'paths.js'));
-    if (typeof paths.getWorkspaceId === 'function') return paths.getWorkspaceId();
-  } catch { /* paths.js unreachable — return null */ }
-  return null;
-}
+// Workspace-id resolution is shared with the session-start reader via
+// _runtimePaths.resolveWorkspaceId(). Reader and writer MUST resolve the SAME
+// id or workspace scoping silently breaks (no entry would ever match the
+// reader's filter), so this logic lives in exactly one place instead of being
+// duplicated here. The shared resolver mirrors src/gep/paths.js#getWorkspaceId()
+// loaded from the evolver root, with an EVOLVER_WORKSPACE_ID env override —
+// consistent with the review-time reader in src/evolve/pipeline/collect.js
+// (Bugbot PR #109 round-1 MEDIUM; reader/writer drift flagged on PR #555).
 
 function runGit(args, cwd) {
   // Argv-array form, no shell. Avoids POSIX `2>/dev/null` redirects that
@@ -69,11 +58,16 @@ function getGitDiffStats() {
   const filesChanged = (stat.match(/\d+ files? changed/) || ['0'])[0];
   const insertions = (stat.match(/(\d+) insertions?/) || [null, '0'])[1];
   const deletions = (stat.match(/(\d+) deletions?/) || [null, '0'])[1];
+  // Distinguish "no git repo here" from "repo with no changes" purely for the
+  // skip-log message — the diff commands above can't tell the two apart (both
+  // yield empty output). A single cheap rev-parse settles it.
+  const isRepo = runGit(['rev-parse', '--is-inside-work-tree'], cwd).out === 'true';
   return {
     stat,
     summary: `${filesChanged}, +${insertions}/-${deletions}`,
     diffSnippet: diffContent.slice(0, 2000),
     hasChanges: stat.length > 0,
+    isRepo,
   };
 }
 
@@ -176,8 +170,17 @@ function recordToLocal(graphPath, outcome) {
       // .evolver/workspace-id file. cwd is retained as a backward-compat
       // tag so older entries written before this hardening still pass
       // the cwd check.
-      cwd: process.cwd(),
-      workspace_id: resolveWorkspaceIdForWriter(),
+      //
+      // Use resolveProjectDir() (NOT process.cwd()) so the cwd tag records the
+      // user's project, consistent with how the diff above is collected and
+      // with the session-start reader's cwd fallback. Under Cursor, cwd is the
+      // plugin install dir, so a raw process.cwd() tag would never match the
+      // reader's resolveProjectDir()-derived currentDir — silently hiding every
+      // cwd-only entry (Bugbot PR #555). collect.js only uses cwd as a legacy
+      // fallback (disabled once a workspace_id secret exists), so changing the
+      // tag's source — still a directory path — does not affect its scoping.
+      cwd: resolveProjectDir(),
+      workspace_id: resolveWorkspaceId(),
       source: 'hook:session-end',
     };
     fs.appendFileSync(graphPath, JSON.stringify(entry) + '\n', 'utf8');
@@ -185,6 +188,24 @@ function recordToLocal(graphPath, outcome) {
   } catch {
     return false;
   }
+}
+
+// Append a single timestamped line to ~/.evolver/logs/evolution.log (or
+// EVOLVER_HOOK_LOG_DIR). Best-effort: a log-write failure must never break the
+// hook. Used both for recorded outcomes and for the "skipped, nothing to
+// record" notices so a user can always see why a session did or did not
+// produce an entry.
+function appendEvolutionLog(line) {
+  try {
+    const logDir = process.env.EVOLVER_HOOK_LOG_DIR
+      || path.join(os.homedir(), '.evolver', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(
+      path.join(logDir, 'evolution.log'),
+      `${new Date().toISOString()} ${line}\n`,
+      'utf8'
+    );
+  } catch { /* best-effort, never break the hook on log write */ }
 }
 
 function main() {
@@ -206,6 +227,18 @@ function main() {
       const diffInfo = getGitDiffStats();
 
       if (!diffInfo.hasChanges) {
+        // No git diff means no signal source — session-end derives the
+        // outcome (status/score/signals/summary) entirely from the diff, so
+        // there is nothing meaningful to record. This is expected in a
+        // non-git workspace or a repo with no changes this session. Rather
+        // than fabricate an empty outcome (which would pollute the memory
+        // graph), record nothing — but leave a log breadcrumb so the user
+        // can tell "evolver ran but had nothing to record" apart from
+        // "evolver never fired". (Previously this branch was fully silent.)
+        const reason = diffInfo.isRepo
+          ? 'no changes detected this session'
+          : 'not a git workspace';
+        appendEvolutionLog(`[Evolution] Session end: nothing recorded (${reason}).`);
         finish({});
         return;
       }
@@ -256,16 +289,7 @@ function main() {
       // The receipt is always appended to ~/.evolver/logs/evolution.log
       // so it is never silently lost; users can opt back in to the inline
       // notification with EVOLVER_HOOK_VERBOSE=1.
-      try {
-        const logDir = process.env.EVOLVER_HOOK_LOG_DIR
-          || path.join(os.homedir(), '.evolver', 'logs');
-        fs.mkdirSync(logDir, { recursive: true });
-        fs.appendFileSync(
-          path.join(logDir, 'evolution.log'),
-          `${new Date().toISOString()} ${msg}\n`,
-          'utf8'
-        );
-      } catch { /* best-effort, never break the hook on log write */ }
+      appendEvolutionLog(msg);
 
       finish(isCursorHost() ? {} : { systemMessage: msg });
     } catch (e) {

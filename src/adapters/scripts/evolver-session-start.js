@@ -7,17 +7,65 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { findEvolverRoot, findMemoryGraph } = require('./_runtimePaths');
+const { findEvolverRoot, findMemoryGraph, resolveProjectDir, resolveWorkspaceId } = require('./_runtimePaths');
 const { filterRelevantOutcomes } = require('./_memoryFiltering');
 
-function readLastN(filePath, n) {
+// Return up to `n` of the current workspace's most-recent entries, in
+// chronological (oldest-first) order.
+//
+// Why scan from the end: a plain tail-N-then-filter read would let outcomes
+// from other projects (which share the user-level fallback graph on npm-global
+// installs) crowd this workspace's entries out of the window — we must scope
+// to the workspace BEFORE trimming. But parsing the ENTIRE file to do that is
+// wasteful: the graph can reach ~100 MB before rotation, and JSON-parsing every
+// line on each session start is real CPU/memory cost (Bugbot PR #555 round-3).
+//
+// So we read the file (cheap; the previous readLastN read it whole too) but
+// JSON-parse lines lazily from the newest end, keeping only workspace matches,
+// and stop as soon as we have `n`. Parse count is bounded by where this
+// workspace's n-th-most-recent entry sits, not by total file size.
+function readRecentWorkspaceEntries(filePath, currentId, currentDir, n) {
+  let lines;
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean);
-    return lines.slice(-n).map(line => {
-      try { return JSON.parse(line); } catch { return null; }
-    }).filter(Boolean);
+    lines = fs.readFileSync(filePath, 'utf8').trim().split('\n');
   } catch { return []; }
+  const out = [];
+  for (let i = lines.length - 1; i >= 0 && out.length < n; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (belongsToWorkspace(entry, currentId, currentDir)) out.push(entry);
+  }
+  return out.reverse(); // newest-collected-first -> chronological
+}
+
+// Does this memory-graph entry belong to the current workspace?
+//
+// The session-end writer stamps two tags: `workspace_id` (forge-resistant,
+// preferred) and `cwd` (backward-compat). We scope reads so that one project
+// never sees another's outcomes through the shared user-level fallback graph
+// (~/.evolver/memory/evolution/memory_graph.jsonl) — the cross-project
+// disclosure / prompt-injection surface Bugbot flagged on the writer side
+// (PR #105 round-2), which the reader never enforced until now.
+//
+// Rules, in order:
+//   - currentId known + entry.workspace_id present -> must match exactly.
+//   - currentId unknown OR entry has neither tag (pre-hardening / Hub-sourced
+//     entries) -> do NOT exclude; falling back to "show it" preserves prior
+//     behavior and avoids hiding all memory when ids can't be resolved.
+//   - As a softer fallback, when the entry has no workspace_id but does carry a
+//     cwd, match that against the current project dir.
+function belongsToWorkspace(entry, currentId, currentDir) {
+  if (entry && typeof entry.workspace_id === 'string' && entry.workspace_id) {
+    if (currentId) return entry.workspace_id === currentId;
+    return true; // can't compare — don't hide it
+  }
+  if (entry && typeof entry.cwd === 'string' && entry.cwd) {
+    if (currentDir) return entry.cwd === currentDir;
+    return true;
+  }
+  return true; // untagged (legacy / Hub) — never excluded
 }
 
 function formatOutcome(entry) {
@@ -100,8 +148,15 @@ function main() {
     return;
   }
 
-  const entries = readLastN(graphPath, 5);
-  const filtered = filterRelevantOutcomes(entries);
+  // Scope to the current workspace BEFORE trimming to the most-recent window,
+  // so other projects sharing the user-level fallback graph can't crowd this
+  // workspace's outcomes out of view. When the workspace id can't be resolved,
+  // belongsToWorkspace() falls back to "show it" — no regression vs. the old
+  // unscoped behavior.
+  const currentId = resolveWorkspaceId(evolverRoot);
+  const currentDir = resolveProjectDir();
+  const recent = readRecentWorkspaceEntries(graphPath, currentId, currentDir, 5);
+  const filtered = filterRelevantOutcomes(recent);
 
   if (filtered.length === 0) {
     process.stdout.write(JSON.stringify({}));
@@ -125,4 +180,11 @@ function main() {
   }));
 }
 
-main();
+// Run as a hook when invoked directly; expose pure helpers for unit tests when
+// required as a module. Guarding on require.main keeps the direct-execution
+// behavior (the hosts run `node evolver-session-start.js`) unchanged.
+if (require.main === module) {
+  main();
+} else {
+  module.exports = { belongsToWorkspace };
+}
